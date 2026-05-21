@@ -11,7 +11,7 @@ st.set_page_config(
 
 st.title("🚖 Uber-Style Real-Time Ride Dashboard")
 
-API_BASE = "http://127.0.0.1:8000"
+API_BASE = "https://ride-analytics-api.onrender.com/"
 
 # ==============================
 # Realtime Metrics
