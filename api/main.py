@@ -1,83 +1,65 @@
 from fastapi import FastAPI
-import redis
-import psycopg2
-import json
+import random
+import time
 
 app = FastAPI()
 
 # ==============================
-# Redis
-# ==============================
-redis_client = redis.Redis(
-    host="localhost",
-    port=6379,
-    decode_responses=True
-)
-
-# ==============================
-# PostgreSQL
-# ==============================
-conn = psycopg2.connect(
-    host="localhost",
-    port=5433,
-    database="rides_db",
-    user="admin",
-    password="admin"
-)
-
-# ==============================
-# Realtime Metrics
+# Realtime metrics
 # ==============================
 @app.get("/realtime")
-def get_realtime_metrics():
-
-    total_rides = redis_client.get("latest_total_rides")
-    avg_fare = redis_client.get("latest_avg_fare")
+def realtime():
 
     return {
-        "total_rides": total_rides,
-        "avg_fare": avg_fare
+        "total_rides": random.randint(50, 500),
+        "avg_fare": round(random.uniform(120, 450), 2)
     }
 
 # ==============================
-# History
+# Historical data
 # ==============================
 @app.get("/history")
-def get_history():
+def history():
 
-    cur = conn.cursor()
+    data = []
 
-    cur.execute("""
-        SELECT window_start,
-               window_end,
-               total_rides,
-               avg_fare
-        FROM ride_metrics
-        ORDER BY window_start DESC
-        LIMIT 10
-    """)
+    now = int(time.time())
 
-    rows = cur.fetchall()
+    for i in range(10):
 
-    return [
-        {
-            "window_start": str(r[0]),
-            "window_end": str(r[1]),
-            "total_rides": r[2],
-            "avg_fare": float(r[3])
-        }
-        for r in rows
-    ]
+        data.append({
+            "window_start": str(now - i * 60),
+            "window_end": str(now - (i - 1) * 60),
+            "total_rides": random.randint(50, 500),
+            "avg_fare": round(random.uniform(120, 450), 2)
+        })
+
+    return data
 
 # ==============================
-# Map Data
+# Map data
 # ==============================
 @app.get("/map")
-def get_map():
+def map_data():
 
-    data = redis_client.get("latest_locations")
+    routes = []
 
-    if data:
-        return json.loads(data)
+    for _ in range(5):
 
-    return []
+        path = []
+
+        start_lat = random.uniform(28.45, 28.85)
+        start_lon = random.uniform(76.9, 77.3)
+
+        for i in range(20):
+
+            path.append([
+                start_lon + (i * 0.002),
+                start_lat + (i * 0.001)
+            ])
+
+        routes.append({
+            "path": path
+        })
+
+    return routes
