@@ -5,10 +5,18 @@ import json
 
 app = FastAPI()
 
+# ==============================
 # Redis
-redis_client = redis.Redis(host="localhost", port=6379, decode_responses=True)
+# ==============================
+redis_client = redis.Redis(
+    host="localhost",
+    port=6379,
+    decode_responses=True
+)
 
+# ==============================
 # PostgreSQL
+# ==============================
 conn = psycopg2.connect(
     host="localhost",
     port=5433,
@@ -18,23 +26,32 @@ conn = psycopg2.connect(
 )
 
 # ==============================
-# Real-time metrics
+# Realtime Metrics
 # ==============================
 @app.get("/realtime")
 def get_realtime_metrics():
+
+    total_rides = redis_client.get("latest_total_rides")
+    avg_fare = redis_client.get("latest_avg_fare")
+
     return {
-        "total_rides": redis_client.get("latest_total_rides"),
-        "avg_fare": redis_client.get("latest_avg_fare")
+        "total_rides": total_rides,
+        "avg_fare": avg_fare
     }
 
 # ==============================
-# Historical
+# History
 # ==============================
 @app.get("/history")
 def get_history():
+
     cur = conn.cursor()
+
     cur.execute("""
-        SELECT window_start, window_end, total_rides, avg_fare
+        SELECT window_start,
+               window_end,
+               total_rides,
+               avg_fare
         FROM ride_metrics
         ORDER BY window_start DESC
         LIMIT 10
@@ -56,6 +73,11 @@ def get_history():
 # Map Data
 # ==============================
 @app.get("/map")
-def get_map_data():
+def get_map():
+
     data = redis_client.get("latest_locations")
-    return json.loads(data) if data else []
+
+    if data:
+        return json.loads(data)
+
+    return []

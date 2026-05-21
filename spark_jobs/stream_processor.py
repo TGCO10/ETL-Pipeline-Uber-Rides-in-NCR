@@ -1,6 +1,7 @@
 from pyspark.sql import SparkSession
-from pyspark.sql.functions import col, from_json, to_timestamp, window, count, avg
-from pyspark.sql.types import StructType, IntegerType, DoubleType, LongType
+from pyspark.sql.functions import *
+from pyspark.sql.types import *
+
 import redis
 import json
 
@@ -15,6 +16,7 @@ schema = StructType() \
     .add("pickup_lon", DoubleType()) \
     .add("drop_lat", DoubleType()) \
     .add("drop_lon", DoubleType()) \
+    .add("route", ArrayType(ArrayType(DoubleType()))) \
     .add("fare", DoubleType()) \
     .add("timestamp", LongType())
 
@@ -28,7 +30,7 @@ spark = SparkSession.builder \
 spark.sparkContext.setLogLevel("WARN")
 
 # ==============================
-# Kafka Read
+# Read Kafka Stream
 # ==============================
 df = spark.readStream \
     .format("kafka") \
@@ -47,26 +49,28 @@ parsed_df = json_df.select(
 ).select("data.*")
 
 # ==============================
-# Transform
+# Event Time
 # ==============================
-processed_df = parsed_df \
-    .withColumn("event_time", to_timestamp(col("timestamp"))) \
-    .withColumn("fare_per_km", col("fare") / 10)
+processed_df = parsed_df.withColumn(
+    "event_time",
+    to_timestamp(col("timestamp"))
+)
 
 # ==============================
 # Aggregation
 # ==============================
-agg_df = processed_df \
-    .groupBy(window(col("event_time"), "1 minute")) \
-    .agg(
-        count("*").alias("total_rides"),
-        avg("fare").alias("avg_fare")
-    )
+agg_df = processed_df.groupBy(
+    window(col("event_time"), "1 minute")
+).agg(
+    count("*").alias("total_rides"),
+    avg("fare").alias("avg_fare")
+)
 
 # ==============================
-# Write Aggregates (Postgres + Redis)
+# Write Metrics
 # ==============================
-def write_aggregates(batch_df, batch_id):
+def write_metrics(batch_df, batch_id):
+
     final_df = batch_df.select(
         col("window.start").alias("window_start"),
         col("window.end").alias("window_end"),
@@ -85,42 +89,53 @@ def write_aggregates(batch_df, batch_id):
         .mode("append") \
         .save()
 
-    # Redis (metrics)
+    # Redis
     r = redis.Redis(host="redis", port=6379, decode_responses=True)
+
     rows = final_df.collect()
 
     for row in rows:
         r.set("latest_total_rides", row["total_rides"])
         r.set("latest_avg_fare", float(row["avg_fare"]))
 
-
 # ==============================
-# Write Raw Locations (Redis)
+# Write Live Locations
 # ==============================
 def write_locations(batch_df, batch_id):
+
     r = redis.Redis(host="redis", port=6379, decode_responses=True)
 
-    rows = batch_df.select("pickup_lat", "pickup_lon").limit(50).collect()
+    rows = batch_df.select(
+        "ride_id",
+        "pickup_lat",
+        "pickup_lon",
+        "route"
+    ).limit(30).collect()
 
-    locations = [
-        {"lat": row["pickup_lat"], "lon": row["pickup_lon"]}
-        for row in rows
-    ]
+    locations = []
+
+    for row in rows:
+        locations.append({
+            "ride_id": row["ride_id"],
+            "lat": row["pickup_lat"],
+            "lon": row["pickup_lon"],
+            "route": row["route"]
+        })
 
     r.set("latest_locations", json.dumps(locations))
-
 
 # ==============================
 # Streaming Queries
 # ==============================
 agg_query = agg_df.writeStream \
     .outputMode("complete") \
-    .foreachBatch(write_aggregates) \
+    .foreachBatch(write_metrics) \
     .start()
 
-raw_query = processed_df.writeStream \
+location_query = processed_df.writeStream \
     .outputMode("append") \
     .foreachBatch(write_locations) \
     .start()
 
 agg_query.awaitTermination()
+location_query.awaitTermination()
