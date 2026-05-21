@@ -14,8 +14,8 @@ st.set_page_config(
 
 st.title("🚖 Real-Time Ride Analytics Dashboard")
 
-# 🔥 YOUR RENDER API URL
-API_BASE = "https://ride-analytics-api.onrender.com/"
+# 🔥 FIXED API URL
+API_BASE = "https://ride-analytics-api.onrender.com"
 
 # ==============================
 # REALTIME METRICS
@@ -27,13 +27,12 @@ col1, col2 = st.columns(2)
 def fetch_realtime():
 
     try:
-        response = requests.get(f"{API_BASE}/realtime")
+        response = requests.get(
+            f"{API_BASE}/realtime",
+            timeout=10
+        )
 
-        if response.status_code != 200:
-            return {
-                "total_rides": 0,
-                "avg_fare": 0
-            }
+        response.raise_for_status()
 
         data = response.json()
 
@@ -44,7 +43,7 @@ def fetch_realtime():
 
     except Exception as e:
 
-        st.error(str(e))
+        st.error(f"Realtime API Error: {e}")
 
         return {
             "total_rides": 0,
@@ -55,12 +54,12 @@ realtime = fetch_realtime()
 
 col1.metric(
     "Total Rides",
-    realtime.get("total_rides", 0)
+    realtime["total_rides"]
 )
 
 col2.metric(
     "Average Fare",
-    realtime.get("avg_fare", 0)
+    f"₹{realtime['avg_fare']}"
 )
 
 # ==============================
@@ -72,34 +71,38 @@ def fetch_history():
 
     try:
 
-        response = requests.get(f"{API_BASE}/history")
+        response = requests.get(
+            f"{API_BASE}/history",
+            timeout=10
+        )
 
-        if response.status_code != 200:
-            return pd.DataFrame()
+        response.raise_for_status()
 
         return pd.DataFrame(response.json())
 
-    except:
+    except Exception as e:
+
+        st.error(f"History API Error: {e}")
+
         return pd.DataFrame()
 
 df = fetch_history()
 
 if not df.empty:
 
-    if "window_start" in df.columns:
+    df["window_start"] = pd.to_datetime(
+        df["window_start"],
+        unit="s",
+        errors="coerce"
+    )
 
-        df["window_start"] = pd.to_datetime(
-            df["window_start"],
-            errors="coerce"
-        )
+    st.line_chart(
+        df.set_index("window_start")["total_rides"]
+    )
 
-        st.line_chart(
-            df.set_index("window_start")["total_rides"]
-        )
-
-        st.line_chart(
-            df.set_index("window_start")["avg_fare"]
-        )
+    st.line_chart(
+        df.set_index("window_start")["avg_fare"]
+    )
 
     st.dataframe(df)
 
@@ -115,14 +118,19 @@ def fetch_map():
 
     try:
 
-        response = requests.get(f"{API_BASE}/map")
+        response = requests.get(
+            f"{API_BASE}/map",
+            timeout=10
+        )
 
-        if response.status_code != 200:
-            return []
+        response.raise_for_status()
 
         return response.json()
 
-    except:
+    except Exception as e:
+
+        st.error(f"Map API Error: {e}")
+
         return []
 
 map_data = fetch_map()
@@ -133,18 +141,10 @@ if map_data:
 
     for ride in map_data:
 
-        # deployed API returns "path"
         if "path" in ride:
 
             route_data.append({
                 "path": ride["path"]
-            })
-
-        # local API returns "route"
-        elif "route" in ride:
-
-            route_data.append({
-                "path": ride["route"]
             })
 
     if route_data:
